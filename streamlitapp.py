@@ -336,12 +336,7 @@ def login_user(username, password):
     if db[username]["password"] != hash_pw(password):
         return False, "Wrong password."
     return True, "Login successful!"
-if ok:
-    st.session_state.logged_in = True
-    st.session_state.username = uname
-    # Load saved history
-    st.session_state.history = st.session_state.users_db.get(uname, {}).get("history", [])
-    st.rerun()
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # LOAN ELIGIBILITY
@@ -839,6 +834,8 @@ with st.sidebar:
             if st.button(t("register")):
                 ok, msg = register_user(uname, pword)
                 st.success(msg) if ok else st.error(msg)
+                if ok:
+                    st.rerun()
     else:
         st.markdown(f"#### 👤 {st.session_state.username}")
         if st.button(t("logout")):
