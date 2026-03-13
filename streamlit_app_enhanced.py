@@ -57,7 +57,20 @@ if "theme"      not in st.session_state: st.session_state.theme      = "dark"
 if "lang"       not in st.session_state: st.session_state.lang       = "English"
 if "logged_in"  not in st.session_state: st.session_state.logged_in  = False
 if "username"   not in st.session_state: st.session_state.username   = ""
-if "users_db"   not in st.session_state: st.session_state.users_db   = {}
+USERS_FILE = "users.json"
+
+def load_users():
+    if os.path.exists(USERS_FILE):
+        with open(USERS_FILE, "r") as f:
+            return json.load(f)
+    return {}
+
+def save_users(users_db):
+    with open(USERS_FILE, "w") as f:
+        json.dump(users_db, f)
+
+if "users_db" not in st.session_state:
+    st.session_state.users_db = load_users()
 if "saved_data" not in st.session_state: st.session_state.saved_data = {}
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -313,6 +326,7 @@ def register_user(username, password):
         "history":  [],
         "created":  datetime.now().strftime("%d %b %Y"),
     }
+    save_users(st.session_stste.users_db)
     return True, "Registered successfully!"
 
 def login_user(username, password):
