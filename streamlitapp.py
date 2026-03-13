@@ -60,14 +60,20 @@ if "username"   not in st.session_state: st.session_state.username   = ""
 USERS_FILE = "users.json"
 
 def load_users():
-    if os.path.exists(USERS_FILE):
-        with open(USERS_FILE, "r") as f:
-            return json.load(f)
+    try:
+        if os.path.exists(USERS_FILE):
+            with open(USERS_FILE, "r") as f:
+                return json.load(f)
+    except Exception:
+        pass
     return {}
 
 def save_users(users_db):
-    with open(USERS_FILE, "w") as f:
-        json.dump(users_db, f)
+    try:
+        with open(USERS_FILE, "w") as f:
+            json.dump(users_db, f)
+    except Exception:
+        pass
 
 if "users_db" not in st.session_state:
     st.session_state.users_db = load_users()
@@ -836,19 +842,23 @@ with st.sidebar:
                 st.success(msg) if ok else st.error(msg)
                 if ok:
                     st.rerun()
-    else:
-        st.markdown(f"#### 👤 {st.session_state.username}")
-        if st.button(t("logout")):
+                if st.button(t("register")):
+                            ok, msg = register_user(uname, pword)
+                            if ok:
+                                st.success(str(msg))
+                                st.rerun()
+                else:
+                    st.error(str(msg))
             if st.session_state.username in st.session_state.users_db:
                 st.session_state.users_db[st.session_state.username]["history"] = st.session_state.history
             st.session_state.logged_in = False
             st.session_state.username  = ""
             st.rerun()
-        if st.button(t("save_data")):
-            if st.session_state.username in st.session_state.users_db:
-             st.session_state.users_db[st.session_state.username]["history"] = st.session_state.history
-        save_users(st.session_state.users_db)
-    st.success("Data saved!")
+            if st.button(t("save_data")):
+                if st.session_state.username in st.session_state.users_db:
+                  st.session_state.users_db[st.session_state.username]["history"] = st.session_state.history
+                save_users(st.session_state.users_db)
+                st.success("Data saved!")
 
     st.markdown("---")
     st.markdown("""
