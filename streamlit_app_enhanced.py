@@ -26,6 +26,14 @@ from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 from datetime import datetime
 from fpdf import FPDF
 
+import asyncio
+try:
+    loop = asyncio.get_event_loop()
+    if loop.is_closed():
+        asyncio.set_event_loop(asyncio.new_event_loop())
+except Exception:
+    asyncio.set_event_loop(asyncio.new_event_loop())
+
 
 # ── Paste your Gemini API key here ──────────────────────────────────────────
 os.environ["GEMINI_API_KEY"] = st.secrets.get("GEMINI_API_KEY", "")
