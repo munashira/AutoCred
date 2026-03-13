@@ -825,40 +825,47 @@ with st.sidebar:
         uname = st.text_input(t("username"), key="auth_uname")
         pword = st.text_input(t("password"), type="password", key="auth_pw")
         if auth_tab == "Login":
-            if st.button(t("login")):
-                ok, msg = login_user(uname, pword)
-                if ok:
-                    st.session_state.logged_in = True
-                    st.session_state.username  = uname
-                    if uname in st.session_state.users_db:
-                        st.session_state.history = st.session_state.users_db[uname].get("history", [])
-                    st.success(msg)
-                    st.rerun()
+            if st.button(t("login"), key="login_btn"):
+                if not uname or not pword:
+                    st.warning("Please enter username and password!")
                 else:
-                    st.error(msg)
+                    ok, msg = login_user(uname, pword)
+                    if ok:
+                        st.session_state.logged_in = True
+                        st.session_state.username = uname
+                        if uname in st.session_state.users_db:
+                            st.session_state.history = st.session_state.users_db[uname].get("history", [])
+                        st.success(str(msg))
+                        st.rerun()
+                    else:
+                        st.error(str(msg))
+                
         else:
-            if st.button(t("register")):
-                ok, msg = register_user(uname, pword)
-                st.success(msg) if ok else st.error(msg)
-                if ok:
-                    st.rerun()
-                if st.button(t("register")):
-                            ok, msg = register_user(uname, pword)
-                            if ok:
-                                st.success(str(msg))
-                                st.rerun()
+            if st.button(t("register"), key="register_btn"):
+                if not uname or not pword:
+                    st.warning("Please enter username and password!")
                 else:
-                    st.error(str(msg))
-            if st.session_state.username in st.session_state.users_db:
-                st.session_state.users_db[st.session_state.username]["history"] = st.session_state.history
-            st.session_state.logged_in = False
-            st.session_state.username  = ""
-            st.rerun()
-            if st.button(t("save_data")):
+                    ok, msg = register_user(uname, pword)
+                    if ok:
+                        st.success(str(msg))
+                        st.rerun()
+                    else:
+                        st.error(str(msg))
+                
+            else:
+               st.markdown(f"#### 👤 {st.session_state.username}")
+            if st.button(t("logout"), key="logout_btn"):
                 if st.session_state.username in st.session_state.users_db:
-                  st.session_state.users_db[st.session_state.username]["history"] = st.session_state.history
-                save_users(st.session_state.users_db)
-                st.success("Data saved!")
+                    st.session_state.users_db[st.session_state.username]["history"] = st.session_state.history
+                    save_users(st.session_state.users_db)
+                st.session_state.logged_in = False
+                st.session_state.username = ""
+                st.rerun()
+            if st.button(t("save_data"), key="save_btn"):
+                if st.session_state.username in st.session_state.users_db:
+                    st.session_state.users_db[st.session_state.username]["history"] = st.session_state.history
+                    save_users(st.session_state.users_db)
+                    st.success("Data saved!")
 
     st.markdown("---")
     st.markdown("""
