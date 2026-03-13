@@ -5,7 +5,7 @@ Install:
     pip install streamlit xgboost shap pandas numpy scikit-learn plotly google-genai fpdf2 streamlit-authenticator bcrypt
 
 Run:
-    streamlit run streamlit_app_enhanced.py
+    streamlit run streamlitapp.py
 """
 
 import os
