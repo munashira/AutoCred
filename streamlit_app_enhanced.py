@@ -326,7 +326,7 @@ def register_user(username, password):
         "history":  [],
         "created":  datetime.now().strftime("%d %b %Y"),
     }
-    save_users(st.session_stste.users_db)
+    save_users(st.session_state.users_db)
     return True, "Registered successfully!"
 
 def login_user(username, password):
