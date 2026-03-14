@@ -57,6 +57,7 @@ if "theme"      not in st.session_state: st.session_state.theme      = "dark"
 if "lang"       not in st.session_state: st.session_state.lang       = "English"
 if "logged_in"  not in st.session_state: st.session_state.logged_in  = False
 if "username"   not in st.session_state: st.session_state.username   = ""
+if "redirect_login" not in st.session_state: st.session_state.redirect_login = False
 USERS_FILE = "users.json"
 
 def load_users():
@@ -505,6 +506,41 @@ def send_email_report(to_email, pdf_bytes, score, band):
         return False, f"Email error: {str(e)}"
 
 # ─────────────────────────────────────────────────────────────────────────────
+# OTP
+# ─────────────────────────────────────────────────────────────────────────────
+def send_otp_email(to_email, otp):
+    try:
+        import urllib.request
+        api_key = st.secrets.get("BREVO_API_KEY", "")
+        payload = json.dumps({
+            "sender": {"name": "AutoCred", "email": "munashirafarheen@gmail.com"},
+            "to": [{"email": to_email}],
+            "subject": "Your AutoCred OTP",
+            "htmlContent": f"""
+                <div style="font-family:Arial;max-width:400px;margin:auto;padding:30px;
+                            background:#0f172a;border-radius:16px;text-align:center;">
+                    <div style="font-size:32px;">💳</div>
+                    <h2 style="color:#38bdf8;">AutoCred Verification</h2>
+                    <p style="color:#94a3b8;">Your OTP for registration:</p>
+                    <div style="font-size:36px;font-weight:800;letter-spacing:8px;
+                                color:#38bdf8;padding:16px;background:#1e293b;
+                                border-radius:12px;margin:16px 0;">{otp}</div>
+                    <p style="color:#64748b;font-size:12px;">Valid for 10 minutes. Do not share.</p>
+                </div>
+            """
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            "https://api.brevo.com/v3/smtp/email",
+            data=payload,
+            headers={"api-key": api_key, "Content-Type": "application/json"},
+            method="POST"
+        )
+        with urllib.request.urlopen(req) as r:
+            return r.status == 201
+    except:
+        return False
+
+# ─────────────────────────────────────────────────────────────────────────────
 # PDF
 # ─────────────────────────────────────────────────────────────────────────────
 def generate_pdf(score, band, ph, cu, ca, na, hi, dr, suggestions, positives, ai):
@@ -658,6 +694,85 @@ def get_ai_insights(score, ph, cu, ca, na, hi, dr, shap_vals):
     except Exception as e:
         st.warning(f"AI insights error: {e}")
         return None
+    # Profile Panel
+    if st.session_state.get("show_profile", False):
+        st.markdown("#### 👤 My Profile")
+        user_data = st.session_state.users_db.get(st.session_state.username, {})
+        first_name = st.text_input("First Name", value=user_data.get("first_name", ""), key="prof_fname")
+        last_name  = st.text_input("Last Name",  value=user_data.get("last_name", ""),  key="prof_lname")
+        dob        = st.text_input("Date of Birth (DD/MM/YYYY)", value=user_data.get("dob", ""), key="prof_dob")
+        email      = st.text_input("Email Address", value=user_data.get("email", ""),  key="prof_email")
+        phone      = st.text_input("Phone Number",  value=user_data.get("phone", ""),  key="prof_phone")
+        address    = st.text_area("Address", value=user_data.get("address", ""), key="prof_address", height=80)
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("💾 Save Profile", key="save_profile_btn", use_container_width=True):
+                st.session_state.users_db[st.session_state.username].update({
+                    "first_name": first_name, "last_name": last_name,
+                    "dob": dob, "email": email, "phone": phone, "address": address,
+                })
+                save_users(st.session_state.users_db)
+                st.success("Profile saved!")
+        with col2:
+            if st.button("❌ Close", key="close_profile_btn", use_container_width=True):
+                st.session_state.show_profile = False
+                st.rerun()
+        st.markdown("---")
+
+    # Change Password Panel
+    if st.session_state.get("show_change_pw", False):
+        st.markdown("#### 🔐 Change Password")
+        cp_step = st.session_state.get("cp_step", 1)
+        if cp_step == 1:
+            user_email = st.session_state.users_db.get(st.session_state.username, {}).get("email", "")
+            if user_email:
+                st.info(f"OTP will be sent to {user_email}")
+                if st.button("📨 Send OTP", key="cp_send_otp", use_container_width=True):
+                    import random
+                    otp = str(random.randint(100000, 999999))
+                    if send_otp_email(user_email, otp):
+                        st.session_state.cp_otp = otp
+                        st.session_state.cp_otp_time = datetime.now()
+                        st.session_state.cp_step = 2
+                        st.success("OTP sent!")
+                        st.rerun()
+                    else:
+                        st.error("Failed to send OTP!")
+            else:
+                st.warning("No email linked! Please re-register with email.")
+            if st.button("❌ Cancel", key="cp_cancel1", use_container_width=True):
+                st.session_state.show_change_pw = False
+                st.session_state.cp_step = 1
+                st.rerun()
+        elif cp_step == 2:
+            otp_in = st.text_input("🔑 Enter OTP", key="cp_otp_in")
+            new_pw = st.text_input("🔒 New Password", type="password", key="cp_new_pw")
+            con_pw = st.text_input("🔒 Confirm Password", type="password", key="cp_con_pw")
+            if st.button("✅ Update Password", key="cp_update", use_container_width=True):
+                time_diff = (datetime.now() - st.session_state.cp_otp_time).seconds
+                if time_diff > 600:
+                    st.error("OTP expired!")
+                    st.session_state.cp_step = 1
+                    st.rerun()
+                elif otp_in != st.session_state.cp_otp:
+                    st.error("Wrong OTP!")
+                elif not new_pw or not con_pw:
+                    st.warning("Please fill all fields!")
+                elif new_pw != con_pw:
+                    st.error("Passwords don't match!")
+                else:
+                    st.session_state.users_db[st.session_state.username]["password"] = hash_pw(new_pw)
+                    save_users(st.session_state.users_db)
+                    st.session_state.show_change_pw = False
+                    st.session_state.cp_step = 1
+                    st.success("Password updated!")
+                    st.rerun()
+            if st.button("❌ Cancel", key="cp_cancel2", use_container_width=True):
+                st.session_state.show_change_pw = False
+                st.session_state.cp_step = 1
+                st.rerun()
+        st.markdown("---")
+
     # ─────────────────────────────────────────────────────────────────────────────
 # CHARTS
 # ─────────────────────────────────────────────────────────────────────────────
@@ -799,122 +914,307 @@ st.markdown(f'<div class="main-title">{t("title")}</div>', unsafe_allow_html=Tru
 st.markdown(f'<div class="sub-title">{t("subtitle")}</div>', unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SIDEBAR
+# FULL PAGE LOGIN
 # ─────────────────────────────────────────────────────────────────────────────
-with st.sidebar:
-
-    # Theme + Language toggles
-    col_t, col_l = st.columns(2)
-    with col_t:
-        if st.button("🌙 Dark" if st.session_state.theme == "light" else "☀️ Light"):
-            st.session_state.theme = "light" if st.session_state.theme == "dark" else "dark"
-            st.rerun()
-    with col_l:
-        lang = st.selectbox("🌐", ["English","Hindi"], label_visibility="collapsed",
-                            index=0 if st.session_state.lang=="English" else 1)
-        if lang != st.session_state.lang:
-            st.session_state.lang = lang
-            st.rerun()
-
-    st.markdown("---")
-
-    # Login / Register
-    if not st.session_state.logged_in:
-        st.markdown("#### 👤 Account")
-        auth_tab = st.radio("", ["Login","Register"], horizontal=True, label_visibility="collapsed")
+if not st.session_state.logged_in:
+    st.markdown("""
+    <style>
+    [data-testid="stSidebar"] {display: none;}
+    [data-testid="collapsedControl"] {display: none;}
+    .stApp { background: linear-gradient(135deg, #0f0c29, #302b63, #24243e); }
+    </style>
+    """, unsafe_allow_html=True)
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown("""
+        <div style="background:rgba(255,255,255,0.05);backdrop-filter:blur(20px);
+            border:1px solid rgba(255,255,255,0.1);border-radius:24px;
+            padding:40px;margin-top:20px;text-align:center;
+            box-shadow:0 25px 50px rgba(0,0,0,0.5);">
+            <div style="font-size:48px;">💳</div>
+            <div style="font-size:28px;font-weight:800;
+                background:linear-gradient(135deg,#38bdf8,#818cf8);
+                -webkit-background-clip:text;-webkit-text-fill-color:transparent;">AUTOCRED</div>
+            <div style="font-size:12px;color:#94a3b8;letter-spacing:3px;margin-bottom:8px;">
+                AI CREDIT ANALYZER</div>
+        </div>
+        """, unsafe_allow_html=True)
+        st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+        auth_tab = st.radio("", ["Sign In", "Sign Up"], horizontal=True,
+                            label_visibility="collapsed", key="auth_tab")
         uname = st.text_input(t("username"), key="auth_uname")
         pword = st.text_input(t("password"), type="password", key="auth_pw")
-        if auth_tab == "Login":
-            if st.button(t("login"), key="login_btn"):
-                if not uname or not pword:
-                    st.warning("Please enter username and password!")
-                else:
-                    ok, msg = login_user(uname, pword)
-                    if ok:
-                        st.session_state.logged_in = True
-                        st.session_state.username = uname
-                        if uname in st.session_state.users_db:
-                            st.session_state.history = st.session_state.users_db[uname].get("history", [])
-                        st.success(str(msg))
-                        st.rerun()
+
+        if auth_tab == "Sign In":
+            login_step = st.session_state.get("login_step", 1)
+            if login_step == 1:
+                if st.button(t("login"), key="login_btn", use_container_width=True):
+                    if not uname or not pword:
+                        st.warning("Please enter username and password!")
                     else:
-                        st.error(str(msg))
-                
+                        ok, msg = login_user(uname, pword)
+                        if ok:
+                            # Check if user has email for 2FA
+                            user_email = st.session_state.users_db.get(uname, {}).get("email", "")
+                            if user_email:
+                                import random
+                                otp = str(random.randint(100000, 999999))
+                                if send_otp_email(user_email, otp):
+                                    st.session_state.twofa_otp = otp
+                                    st.session_state.twofa_time = datetime.now()
+                                    st.session_state.twofa_uname = uname
+                                    st.session_state.login_step = 2
+                                    st.success(f"OTP sent to {user_email}!")
+                                    st.rerun()
+                                else:
+                                    # If OTP fails, login directly
+                                    st.session_state.logged_in = True
+                                    st.session_state.username = uname
+                                    st.session_state.history = st.session_state.users_db.get(uname, {}).get("history", [])
+                                    st.rerun()
+                            else:
+                                # No email, login directly
+                                st.session_state.logged_in = True
+                                st.session_state.username = uname
+                                st.session_state.history = st.session_state.users_db.get(uname, {}).get("history", [])
+                                st.rerun()
+                        else:
+                            st.error(str(msg))
+            elif login_step == 2:
+                st.info(f"🔐 2FA: OTP sent to your email!")
+                otp_2fa = st.text_input("🔑 Enter OTP", placeholder="6-digit OTP", key="twofa_input")
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("✅ Verify", key="twofa_verify", use_container_width=True):
+                        time_diff = (datetime.now() - st.session_state.twofa_time).seconds
+                        if time_diff > 600:
+                            st.error("OTP expired!")
+                            st.session_state.login_step = 1
+                            st.rerun()
+                        elif otp_2fa == st.session_state.twofa_otp:
+                            uname = st.session_state.twofa_uname
+                            st.session_state.logged_in = True
+                            st.session_state.username = uname
+                            st.session_state.history = st.session_state.users_db.get(uname, {}).get("history", [])
+                            st.session_state.login_step = 1
+                            st.rerun()
+                        else:
+                            st.error("Wrong OTP!")
+                with col2:
+                    if st.button("↩️ Back", key="twofa_back", use_container_width=True):
+                        st.session_state.login_step = 1
+                        st.rerun()
         else:
-            if st.button(t("register"), key="register_btn"):
-                if not uname or not pword:
-                    st.warning("Please enter username and password!")
-                else:
-                    ok, msg = register_user(uname, pword)
-                    if ok:
-                        st.success(str(msg))
-                        st.rerun()
+            # Registration with Email OTP
+            reg_step = st.session_state.get("reg_step", 1)
+
+            if reg_step == 1:
+                email = st.text_input("📧 Email", placeholder="Enter your email", key="reg_email")
+                if st.button("📨 Send OTP", key="send_otp_btn", use_container_width=True):
+                    if not uname or not pword or not email:
+                        st.warning("Please fill all fields!")
+                    elif "@" not in email:
+                        st.warning("Please enter a valid email!")
+                    elif uname in st.session_state.users_db:
+                        st.error("Username already exists!")
                     else:
-                        st.error(str(msg))
-                
+                        import random
+                        otp = str(random.randint(100000, 999999))
+                        sent = send_otp_email(email, otp)
+                        if sent:
+                            st.session_state.pending_otp = otp
+                            st.session_state.pending_uname = uname
+                            st.session_state.pending_pword = pword
+                            st.session_state.pending_email = email
+                            st.session_state.otp_time = datetime.now()
+                            st.session_state.reg_step = 2
+                            st.success(f"OTP sent to {email}!")
+                            st.rerun()
+                        else:
+                            st.error("Failed to send OTP. Check your email!")
+
+            elif reg_step == 2:
+                st.info(f"OTP sent to {st.session_state.get('pending_email', '')}!")
+                otp_input = st.text_input("🔑 Enter OTP", placeholder="Enter 6-digit OTP", key="otp_input")
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("✨ Verify & Register", key="verify_otp_btn", use_container_width=True):
+                        time_diff = (datetime.now() - st.session_state.otp_time).seconds
+                        if time_diff > 600:
+                            st.error("OTP expired! Please try again.")
+                            st.session_state.reg_step = 1
+                            st.rerun()
+                        elif otp_input == st.session_state.pending_otp:
+                            ok, msg = register_user(
+                                st.session_state.pending_uname,
+                                st.session_state.pending_pword
+                            )
+                            if ok:
+                                # Save email to profile
+                                st.session_state.users_db[st.session_state.pending_uname]["email"] = st.session_state.pending_email
+                                save_users(st.session_state.users_db)
+                                st.session_state.reg_step = 1
+                                st.session_state.pending_otp = None
+                                st.success("🎉 Registered! Please login now.")
+                            else:
+                                st.error(str(msg))
+                        else:
+                            st.error("Wrong OTP! Try again.")
+                with col2:
+                    if st.button("↩️ Back", key="back_btn", use_container_width=True):
+                        st.session_state.reg_step = 1
+                        st.rerun()
+    st.stop()
+
+with st.sidebar:
+    # ── Top bar: username + three dots menu ──
+    if st.session_state.logged_in:
+        # Load avatar if exists
+        avatar_b64 = st.session_state.users_db.get(st.session_state.username, {}).get("avatar", None)
+
+        col_av, col_u, col_m = st.columns([1, 3, 1])
+        with col_av:
+            if avatar_b64:
+                st.markdown(f"""
+                <img src="data:image/png;base64,{avatar_b64}"
+                     style="width:38px;height:38px;border-radius:50%;object-fit:cover;
+                            border:2px solid #38bdf8;margin-top:8px;">
+                """, unsafe_allow_html=True)
             else:
-               st.markdown(f"#### 👤 {st.session_state.username}")
-            if st.button(t("logout"), key="logout_btn"):
+                st.markdown("""
+                <div style="width:38px;height:38px;border-radius:50%;
+                            background:linear-gradient(135deg,#38bdf8,#818cf8);
+                            display:flex;align-items:center;justify-content:center;
+                            font-size:18px;margin-top:8px;">👤</div>
+                """, unsafe_allow_html=True)
+        with col_u:
+            if st.button(f"👤 {st.session_state.username}", key="profile_btn",
+                         use_container_width=True):
+                st.session_state.show_profile = not st.session_state.get("show_profile", False)
+                st.session_state.show_menu = False
+                st.rerun()
+        with col_m:
+            if st.button("⋮", key="menu_btn"):
+                st.session_state.show_menu = not st.session_state.get("show_menu", False)
+
+        if st.session_state.get("show_menu", False):
+            st.markdown("""
+            <div style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);
+                border-radius:12px;padding:12px;margin-bottom:8px;">
+            """, unsafe_allow_html=True)
+
+            # Theme toggle
+            theme_label = "☀️ Light Mode" if st.session_state.theme == "dark" else "🌙 Dark Mode"
+            if st.button(theme_label, key="menu_theme_btn", use_container_width=True):
+                st.session_state.theme = "light" if st.session_state.theme == "dark" else "dark"
+                st.session_state.show_menu = False
+                st.rerun()
+
+            # Language toggle
+            lang_label = "🇮🇳 Hindi" if st.session_state.lang == "English" else "🇬🇧 English"
+            if st.button(lang_label, key="menu_lang_btn", use_container_width=True):
+                st.session_state.lang = "Hindi" if st.session_state.lang == "English" else "English"
+                st.session_state.show_menu = False
+                st.rerun()
+
+            # Save data
+            if st.button("💾 Save My Data", key="menu_save_btn", use_container_width=True):
+                if st.session_state.username in st.session_state.users_db:
+                    st.session_state.users_db[st.session_state.username]["history"] = st.session_state.history
+                    save_users(st.session_state.users_db)
+                st.session_state.show_menu = False
+                st.success("Data saved!")
+
+            # Avatar upload
+            uploaded = st.file_uploader("🖼️ Change Photo", type=["png","jpg","jpeg"],
+                                        key="avatar_upload", label_visibility="collapsed")
+            if uploaded:
+                import base64
+                avatar_b64 = base64.b64encode(uploaded.read()).decode()
+                if st.session_state.username in st.session_state.users_db:
+                    st.session_state.users_db[st.session_state.username]["avatar"] = avatar_b64
+                    save_users(st.session_state.users_db)
+                st.session_state.show_menu = False
+                st.success("Photo updated!")
+                st.rerun()
+            st.markdown("---")
+
+            # Change Password
+            if st.button("🔐 Change Password", key="menu_chpw_btn", use_container_width=True):
+                st.session_state.show_menu = False
+                st.session_state.show_change_pw = True
+                st.rerun()
+
+            # Clear History
+            if st.button("🗑️ Clear History", key="menu_clear_btn", use_container_width=True):
+                st.session_state.history = []
+                if st.session_state.username in st.session_state.users_db:
+                    st.session_state.users_db[st.session_state.username]["history"] = []
+                    save_users(st.session_state.users_db)
+                st.session_state.show_menu = False
+                st.success("History cleared!")
+
+            # Logout
+            if st.button("🚪 Logout", key="menu_logout_btn", use_container_width=True):
                 if st.session_state.username in st.session_state.users_db:
                     st.session_state.users_db[st.session_state.username]["history"] = st.session_state.history
                     save_users(st.session_state.users_db)
                 st.session_state.logged_in = False
                 st.session_state.username = ""
+                st.session_state.show_menu = False
                 st.rerun()
-            if st.button(t("save_data"), key="save_btn"):
-                if st.session_state.username in st.session_state.users_db:
-                    st.session_state.users_db[st.session_state.username]["history"] = st.session_state.history
-                    save_users(st.session_state.users_db)
-                    st.success("Data saved!")
 
-    st.markdown("---")
-    st.markdown("""
-    <div style="background:linear-gradient(135deg,rgba(14,165,233,0.15),rgba(124,58,237,0.15));
-                border:1px solid rgba(56,189,248,0.3);border-radius:16px;
-                padding:16px;margin-bottom:16px;text-align:center;">
-        <div style="font-size:28px;">💳</div>
-        <div style="font-size:15px;font-weight:700;color:#f1f5f9;margin-top:4px;">Your Credit Profile</div>
-        <div style="font-size:11px;color:#475569;margin-top:2px;">Adjust sliders below</div>
-    </div>
-    """, unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+    else:
+        # Not logged in - just show theme/lang toggles
+        col_t, col_l = st.columns(2)
+        with col_t:
+            if st.button("🌙 Dark" if st.session_state.theme == "light" else "☀️ Light"):
+                st.session_state.theme = "light" if st.session_state.theme == "dark" else "dark"
+                st.rerun()
+        with col_l:
+            lang = st.selectbox("🌐", ["English","Hindi"], label_visibility="collapsed",
+                                index=0 if st.session_state.lang=="English" else 1)
+            if lang != st.session_state.lang:
+                st.session_state.lang = lang
+                st.rerun()
 
-    ph = st.slider("💰 Payment History (%)",  0, 100, 80)
-    cu = st.slider("📊 Credit Utilization",   0.0, 1.0, 0.30, step=0.01)
-    ca = st.slider("📅 Credit Age (Years)",   0, 50, 10)
-    na = st.slider("🏦 Number of Accounts",   1, 100, 8)
-    hi = st.slider("🔍 Hard Inquiries",       0, 10, 2)
-    dr = st.slider("💸 Debt-to-Income Ratio", 0.0, 1.0, 0.25, step=0.01)
+    if st.session_state.logged_in:
+            st.markdown("""
+            <div style="background:linear-gradient(135deg,rgba(14,165,233,0.15),rgba(124,58,237,0.15));
+                        border:1px solid rgba(56,189,248,0.3);border-radius:16px;
+                        padding:16px;margin-bottom:16px;text-align:center;">
+                <div style="font-size:28px;">💳</div>
+                <div style="font-size:15px;font-weight:700;color:#f1f5f9;margin-top:4px;">Your Credit Profile</div>
+                <div style="font-size:11px;color:#475569;margin-top:2px;">Adjust sliders below</div>
+            </div>
+            """, unsafe_allow_html=True)
+            ph = st.slider("💰 Payment History (%)",  0, 100, 80)
+            cu = st.slider("📊 Credit Utilization",   0.0, 1.0, 0.30, step=0.01)
+            ca = st.slider("📅 Credit Age (Years)",   0, 50, 10)
+            na = st.slider("🏦 Number of Accounts",   1, 100, 8)
+            hi = st.slider("🔍 Hard Inquiries",       0, 10, 2)
+            dr = st.slider("💸 Debt-to-Income Ratio", 0.0, 1.0, 0.25, step=0.01)
+            good_count = sum([ph>=80, cu<=0.3, ca>=10, 5<=na<=15, hi<=2, dr<=0.35])
+            health_color = "#34d399" if good_count >= 5 else "#fbbf24" if good_count >= 3 else "#f87171"
+            health_label = "Excellent 🌟" if good_count >= 5 else "Average ⚡" if good_count >= 3 else "Needs Work ⚠️"
+            st.markdown(f"""
+            <div style="background:rgba(15,23,42,0.8);border:1px solid rgba(255,255,255,0.08);
+                        border-radius:12px;padding:12px;margin:8px 0;text-align:center;">
+                <div style="font-size:11px;color:#475569;letter-spacing:1px;">PROFILE HEALTH</div>
+                <div style="font-size:18px;font-weight:700;color:{health_color};">
+                    {good_count}/6 — {health_label}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            st.markdown("---")
+            predict_btn = st.button(t("predict_btn"))
+    else:
+            st.info("👆 Please login or register to use AutoCred!")
+            ph, cu, ca, na, hi, dr = 80, 0.3, 10, 8, 2, 0.25
+            predict_btn = False
 
-    good_count = sum([ph>=80, cu<=0.3, ca>=10, 5<=na<=15, hi<=2, dr<=0.35])
-    health_color = "#34d399" if good_count >= 5 else "#fbbf24" if good_count >= 3 else "#f87171"
-    health_label = "Excellent 🌟" if good_count >= 5 else "Average ⚡" if good_count >= 3 else "Needs Work ⚠️"
-    st.markdown(f"""
-    <div style="background:rgba(15,23,42,0.8);border:1px solid rgba(255,255,255,0.08);
-                border-radius:12px;padding:12px;margin:8px 0;text-align:center;">
-        <div style="font-size:11px;color:#475569;letter-spacing:1px;">PROFILE HEALTH</div>
-        <div style="font-size:18px;font-weight:700;color:{health_color};">
-            {good_count}/6 — {health_label}
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown("---")
-    predict_btn = st.button(t("predict_btn"))
-
-    st.markdown("---")
-    for k, v in model_metrics.items():
-        st.markdown(f"""
-        <div style="display:flex;justify-content:space-between;padding:6px 0;
-                    border-bottom:1px solid rgba(255,255,255,0.05);">
-            <span style="font-size:12px;color:#64748b;">{k}</span>
-            <span style="font-size:12px;font-weight:700;color:#38bdf8;">{v}</span>
-        </div>""", unsafe_allow_html=True)
-
-    st.markdown("---")
-    if st.button(t("clear_hist")):
-        st.session_state.history = []
-        st.rerun()
-        # ─────────────────────────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────────
 # MAIN
 # ─────────────────────────────────────────────────────────────────────────────
 if predict_btn or st.session_state.last_prediction:
